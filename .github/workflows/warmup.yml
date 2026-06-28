@@ -1,31 +1,56 @@
 name: warmup
 
-# Sends Claude Code a single throwaway prompt on a schedule so the 5-hour usage
-# window starts before the workday and resets mid-day instead of after it.
-# This is a TIMING tool only — it does not increase usage or loop real prompts.
-
 on:
   schedule:
-    # NOTE: cron here is in UTC, not your local time. Build/verify with https://crontab.guru
-    # Default: 06:00, 11:00, 16:00 UTC, Monday–Friday.
-    - cron: "0 6,11,16 * * 1-5"
-    # Alternative — every ~5 hours, every day (uncomment to use, and comment out the line above):
-    # - cron: "0 0,5,10,15,20 * * *"
-  workflow_dispatch: {}
+    # Cron is UTC. Convert your local time at https://crontab.guru
+    # Fire a few hours BEFORE you start work so the 5-hour reset lands mid-day.
+    # Default: 06:00 / 11:00 / 16:00 UTC, Mon–Fri.
+    - cron: '0 6,11,16 * * 1-5'
+    # Every ~5h around the clock instead (overkill — see README):
+    # - cron: '0 0,5,10,15,20 * * *'
+  workflow_dispatch:
+    inputs:
+      message:
+        description: 'Prompt to send'
+        required: false
+        default: 'warmup ping, reply with ok'
+
+concurrency:
+  group: claude-warmup
+  cancel-in-progress: false
 
 jobs:
   warmup:
+    name: Warm up the 5-hour window
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: '20'
 
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
 
-      - name: Warmup ping
+      - name: Send warmup ping
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: claude -p "warmup ping, reply with ok"
+          MSG: ${{ github.event.inputs.message || 'warmup ping, reply with ok' }}
+        run: |
+          echo "Sending warmup ping…"
+          claude -p "$MSG"
+
+      - name: Write run summary
+        if: success()
+        run: |
+          opened="$(date -u +'%Y-%m-%d %H:%M UTC')"
+          resets="$(date -u -d '+5 hours' +'%H:%M UTC')"
+          {
+            echo "### ☀️ Claude warmed up"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Window opened | **$opened** |"
+            echo "| Approx. reset | **~$resets** |"
+          } >> "$GITHUB_STEP_SUMMARY"
